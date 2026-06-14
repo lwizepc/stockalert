@@ -394,33 +394,35 @@ let selectedSymbol = null;
 let selectedName = null;
 let searchTimer = null;
 
-// ── Live price stream (server keeps the Finnhub connection alive) ──
+// ── Live prices: ask the server every 5 seconds ──
+let everConnected = false;
+
 function connectStream() {
   setStatus('connecting');
-  const es = new EventSource('/api/stream');
+  alarms.forEach(a => subscribeSymbol(a.symbol));
+  fetchPrices();
+  setInterval(fetchPrices, 5000);
+}
 
-  es.onopen = () => {
+async function fetchPrices() {
+  try {
+    const r = await fetch('/api/prices');
+    const data = await r.json();
+    Object.entries(data).forEach(([sym, info]) => {
+      if (!livePrices[sym]) openPrices[sym] = info.price;
+      livePrices[sym] = info.price;
+    });
     setStatus('live');
-    notify('📡 Conectado a precios en tiempo real', 'info');
-    alarms.forEach(a => subscribeSymbol(a.symbol));
-  };
-
-  es.onmessage = (e) => {
-    try {
-      const msg = JSON.parse(e.data);
-      if (msg.type === 'prices') {
-        Object.entries(msg.data).forEach(([sym, info]) => {
-          if (!livePrices[sym]) openPrices[sym] = info.price;
-          livePrices[sym] = info.price;
-        });
-        updateTickerUI();
-        updateAlarmPrices();
-        checkAlarms();
-      }
-    } catch(err) {}
-  };
-
-  es.onerror = () => setStatus('connecting');
+    if (!everConnected) {
+      everConnected = true;
+      notify('📡 Conectado a precios en tiempo real', 'info');
+    }
+    updateTickerUI();
+    updateAlarmPrices();
+    checkAlarms();
+  } catch (e) {
+    setStatus('connecting');
+  }
 }
 
 function subscribeSymbol(sym) {

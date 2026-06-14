@@ -12,7 +12,6 @@ const DEFAULT_SYMBOLS = ['AAPL','TSLA','GOOGL','MSFT','NVDA','META','BTC'];
 
 let latestPrices = {};   // { SYMBOL: { price, time } }
 let subscribed = new Set();
-let clients = [];         // SSE response objects
 let finnhubWS = null;
 
 function toFinnSymbol(sym) { return FINNHUB_MAP[sym] || sym; }
@@ -39,7 +38,6 @@ function connectFinnhub() {
           const sym = fromFinnSymbol(t.s);
           latestPrices[sym] = { price: t.p, time: t.t };
         });
-        broadcast({ type: 'prices', data: latestPrices });
       }
     } catch (e) {}
   });
@@ -61,36 +59,12 @@ function subscribeFinnhub(sym) {
   }
 }
 
-function broadcast(obj) {
-  const payload = `data: ${JSON.stringify(obj)}\n\n`;
-  clients.forEach(res => res.write(payload));
-}
-
 app.use(express.json());
 app.use(express.static(path.join(__dirname)));
 
-// Live price stream (Server-Sent Events) - client subscribes once, gets pushed updates
-app.get('/api/stream', (req, res) => {
-  res.set({
-    'Content-Type': 'text/event-stream',
-    'Cache-Control': 'no-cache',
-    Connection: 'keep-alive',
-    'X-Accel-Buffering': 'no'
-  });
-  res.flushHeaders();
-  res.write(`data: ${JSON.stringify({ type: 'prices', data: latestPrices })}\n\n`);
-  clients.push(res);
-
-  // Heartbeat so the connection stays open even when the market is closed
-  // and no trade data is coming in (e.g. weekends, after-hours)
-  const heartbeat = setInterval(() => {
-    res.write(`: ping\n\n`);
-  }, 15000);
-
-  req.on('close', () => {
-    clearInterval(heartbeat);
-    clients = clients.filter(c => c !== res);
-  });
+// Current prices - the phone asks for this every few seconds
+app.get('/api/prices', (req, res) => {
+  res.json(latestPrices);
 });
 
 // Ask the server to start tracking a new symbol (e.g. when a new alarm is created)
