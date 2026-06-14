@@ -1,0 +1,762 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>StockAlert</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+  :root {
+    --bg: #080b10;
+    --surface: #0e1318;
+    --surface2: #141b24;
+    --border: #1c2535;
+    --border2: #243040;
+    --accent: #3b82f6;
+    --accent-glow: rgba(59,130,246,0.15);
+    --up: #22c55e;
+    --up-bg: rgba(34,197,94,0.08);
+    --down: #ef4444;
+    --down-bg: rgba(239,68,68,0.08);
+    --warn: #f59e0b;
+    --text: #f1f5f9;
+    --text2: #94a3b8;
+    --text3: #475569;
+    --mono: 'JetBrains Mono', monospace;
+    --sans: 'Inter', sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    min-height: 100vh;
+    max-width: 480px;
+    margin: 0 auto;
+  }
+
+  /* TOP BAR */
+  .topbar {
+    position: sticky; top: 0; z-index: 20;
+    background: rgba(8,11,16,0.95);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+    padding: 14px 16px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .brand { display: flex; align-items: center; gap: 8px; font-family: var(--mono); font-size: 15px; font-weight: 600; }
+  .brand-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--up); box-shadow: 0 0 8px var(--up);
+    animation: breathe 2s ease-in-out infinite;
+  }
+  .brand-dot.connecting { background: var(--warn); box-shadow: 0 0 8px var(--warn); }
+  .brand-dot.error { background: var(--down); box-shadow: 0 0 8px var(--down); animation: none; }
+  @keyframes breathe { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+  .conn-status {
+    font-family: var(--mono); font-size: 9px; letter-spacing: 1px;
+    padding: 3px 8px; border-radius: 4px;
+  }
+  .conn-status.live { color: var(--up); background: var(--up-bg); border: 1px solid rgba(34,197,94,0.2); }
+  .conn-status.connecting { color: var(--warn); background: rgba(245,158,11,0.1); border: 1px solid rgba(245,158,11,0.2); }
+  .conn-status.error { color: var(--down); background: var(--down-bg); border: 1px solid rgba(239,68,68,0.2); }
+
+  /* TICKER STRIP */
+  .ticker-strip {
+    display: flex; overflow-x: auto; scrollbar-width: none;
+    border-bottom: 1px solid var(--border); background: var(--surface);
+  }
+  .ticker-strip::-webkit-scrollbar { display: none; }
+  .tick-item {
+    flex-shrink: 0; padding: 10px 14px;
+    border-right: 1px solid var(--border); cursor: default;
+  }
+  .tick-sym { font-family: var(--mono); font-size: 10px; font-weight: 600; color: var(--text2); letter-spacing: 0.5px; }
+  .tick-price { font-family: var(--mono); font-size: 13px; font-weight: 600; color: var(--text); margin-top: 2px; transition: color 0.3s; }
+  .tick-chg { font-family: var(--mono); font-size: 10px; margin-top: 1px; }
+  .tick-chg.up { color: var(--up); }
+  .tick-chg.dn { color: var(--down); }
+  .tick-price.flash-up { animation: fUp 0.5s ease; }
+  .tick-price.flash-dn { animation: fDn 0.5s ease; }
+  @keyframes fUp { 0%,100%{color:var(--text)} 40%{color:var(--up)} }
+  @keyframes fDn { 0%,100%{color:var(--text)} 40%{color:var(--down)} }
+
+  /* TABS */
+  .tabs {
+    display: flex; padding: 12px 16px 0; gap: 4px;
+    border-bottom: 1px solid var(--border); background: var(--bg);
+  }
+  .tab {
+    flex: 1; padding: 9px 0; text-align: center; font-size: 13px; font-weight: 500;
+    color: var(--text3); cursor: pointer; border-bottom: 2px solid transparent;
+    background: none; border-top: none; border-left: none; border-right: none;
+    transition: color 0.15s, border-color 0.15s;
+  }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  /* COUNT BAR */
+  .count-bar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 16px; border-bottom: 1px solid var(--border); background: var(--surface);
+  }
+  .count-text { font-size: 12px; color: var(--text2); }
+  .count-text strong { color: var(--accent); font-family: var(--mono); }
+  .btn-edit { font-size: 12px; font-weight: 500; color: var(--accent); background: none; border: none; cursor: pointer; }
+
+  /* TABLE */
+  .table-header {
+    display: grid; grid-template-columns: 1fr 1fr 1fr;
+    padding: 8px 16px; border-bottom: 1px solid var(--border); background: var(--surface);
+  }
+  .th { font-size: 11px; font-weight: 500; color: var(--text3); }
+  .th:nth-child(2), .th:nth-child(3) { text-align: right; }
+  .alarm-rows { padding-bottom: 100px; }
+
+  .alarm-row {
+    display: grid; grid-template-columns: 1fr 1fr 1fr;
+    padding: 14px 16px; border-bottom: 1px solid var(--border);
+    align-items: center; transition: background 0.15s; position: relative;
+  }
+  .alarm-row.inactive { opacity: 0.38; }
+  .alarm-row.triggered { animation: rowFlash 0.6s ease 3; }
+  @keyframes rowFlash { 0%,100%{background:transparent} 50%{background:rgba(245,158,11,0.1)} }
+
+  .row-symbol { font-family: var(--mono); font-size: 14px; font-weight: 600; color: var(--text); }
+  .row-cond { font-size: 10px; color: var(--text3); margin-top: 2px; display: flex; align-items: center; gap: 4px; }
+  .cond-dot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; }
+  .cond-dot.on { background: var(--up); }
+  .cond-dot.off { background: var(--text3); }
+
+  .row-target { text-align: right; font-family: var(--mono); font-size: 14px; font-weight: 500; color: var(--accent); }
+  .row-target-sub { font-size: 10px; color: var(--text3); text-align: right; margin-top: 2px; }
+
+  .row-price { text-align: right; font-family: var(--mono); font-size: 14px; font-weight: 600; }
+  .row-price.up { color: var(--up); }
+  .row-price.dn { color: var(--down); }
+  .row-price.neutral { color: var(--text2); }
+  .row-price-sub { font-size: 10px; text-align: right; margin-top: 2px; }
+  .row-price-sub.up { color: var(--up); }
+  .row-price-sub.dn { color: var(--down); }
+  .row-price-sub.neutral { color: var(--text3); }
+
+  .progress-wrap { grid-column: 1/-1; margin-top: 8px; height: 2px; background: var(--border2); border-radius: 2px; overflow: hidden; }
+  .progress-fill { height: 100%; border-radius: 2px; transition: width 0.8s ease; }
+  .progress-fill.up { background: var(--up); }
+  .progress-fill.dn { background: var(--down); }
+
+  .row-actions { display: none; position: absolute; right: 16px; top: 50%; transform: translateY(-50%); gap: 6px; }
+  .edit-mode .row-actions { display: flex; }
+  .edit-mode .alarm-row { padding-right: 96px; }
+  .row-btn {
+    width: 30px; height: 30px; border-radius: 8px;
+    border: 1px solid var(--border2); background: var(--surface2);
+    color: var(--text2); font-size: 13px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .row-btn.del:hover { background: var(--down-bg); color: var(--down); }
+
+  /* EMPTY */
+  .empty { text-align: center; padding: 48px 24px; color: var(--text3); }
+  .empty-icon { font-size: 36px; margin-bottom: 12px; }
+  .empty-title { font-size: 14px; font-weight: 500; color: var(--text2); margin-bottom: 6px; }
+  .empty-sub { font-size: 12px; }
+
+  /* FAB */
+  .fab {
+    position: fixed; bottom: 24px; right: 50%; transform: translateX(50%);
+    max-width: calc(480px - 32px); width: calc(100% - 32px);
+    background: var(--accent); color: white; border: none; border-radius: 14px;
+    padding: 14px; font-family: var(--sans); font-size: 14px; font-weight: 600;
+    cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px;
+    box-shadow: 0 4px 24px rgba(59,130,246,0.35); z-index: 15;
+    transition: opacity 0.2s;
+  }
+  .fab:active { opacity: 0.85; }
+
+  /* BOTTOM SHEET */
+  .sheet-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.65);
+    backdrop-filter: blur(4px); z-index: 30;
+    display: none; align-items: flex-end; justify-content: center;
+  }
+  .sheet-overlay.open { display: flex; }
+  .sheet {
+    background: var(--surface); border: 1px solid var(--border2);
+    border-radius: 20px 20px 0 0; padding: 20px 20px 40px;
+    width: 100%; max-width: 480px; animation: slideUp 0.25s ease;
+  }
+  @keyframes slideUp { from{transform:translateY(100%)} to{transform:translateY(0)} }
+  .sheet-handle { width: 36px; height: 4px; background: var(--border2); border-radius: 2px; margin: 0 auto 20px; }
+  .sheet-title { font-size: 16px; font-weight: 600; margin-bottom: 16px; }
+
+  /* SEARCH BOX */
+  .search-wrap { position: relative; margin-bottom: 14px; }
+  .search-input {
+    width: 100%; background: var(--bg); border: 1px solid var(--border2);
+    border-radius: 10px; color: var(--text); font-family: var(--sans);
+    font-size: 14px; padding: 11px 14px 11px 38px; outline: none;
+    transition: border-color 0.2s;
+  }
+  .search-input:focus { border-color: var(--accent); }
+  .search-icon { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); font-size: 15px; }
+  .search-results {
+    background: var(--bg); border: 1px solid var(--border2);
+    border-radius: 10px; overflow: hidden; margin-top: 6px;
+    max-height: 200px; overflow-y: auto;
+  }
+  .search-item {
+    padding: 11px 14px; display: flex; align-items: center; justify-content: space-between;
+    cursor: pointer; border-bottom: 1px solid var(--border); transition: background 0.1s;
+  }
+  .search-item:last-child { border-bottom: none; }
+  .search-item:hover, .search-item.selected { background: var(--surface2); }
+  .search-item-left {}
+  .search-sym { font-family: var(--mono); font-size: 13px; font-weight: 600; color: var(--text); }
+  .search-name { font-size: 11px; color: var(--text2); margin-top: 1px; }
+  .search-price { font-family: var(--mono); font-size: 13px; font-weight: 600; color: var(--up); }
+  .search-loading { padding: 16px; text-align: center; color: var(--text3); font-size: 13px; }
+
+  .field { margin-bottom: 14px; }
+  .field label { display: block; font-size: 11px; color: var(--text3); font-family: var(--mono); letter-spacing: 0.5px; margin-bottom: 6px; }
+  .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px; }
+  .field select, .field input {
+    width: 100%; background: var(--bg); border: 1px solid var(--border2);
+    border-radius: 10px; color: var(--text); font-family: var(--sans);
+    font-size: 14px; padding: 11px 14px; outline: none; transition: border-color 0.2s;
+    -webkit-appearance: none;
+  }
+  .field select:focus, .field input:focus { border-color: var(--accent); }
+  .field select option { background: var(--surface2); }
+
+  .selected-symbol-bar {
+    display: none; align-items: center; justify-content: space-between;
+    background: var(--accent-glow); border: 1px solid rgba(59,130,246,0.3);
+    border-radius: 10px; padding: 10px 14px; margin-bottom: 14px;
+  }
+  .selected-symbol-bar.show { display: flex; }
+  .sel-sym { font-family: var(--mono); font-size: 14px; font-weight: 600; color: var(--accent); }
+  .sel-name { font-size: 11px; color: var(--text2); margin-top: 2px; }
+  .sel-price { font-family: var(--mono); font-size: 15px; font-weight: 600; color: var(--up); }
+  .btn-clear { background: none; border: none; color: var(--text3); font-size: 16px; cursor: pointer; padding: 2px; }
+
+  .btn-submit {
+    width: 100%; padding: 13px; background: var(--accent); color: white;
+    border: none; border-radius: 12px; font-family: var(--sans);
+    font-size: 14px; font-weight: 600; cursor: pointer; transition: opacity 0.15s;
+  }
+  .btn-submit:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-submit:not(:disabled):active { opacity: 0.85; }
+
+  /* NOTIFICATIONS */
+  .notifs {
+    position: fixed; top: 70px; left: 50%; transform: translateX(-50%);
+    width: calc(100% - 32px); max-width: 420px; z-index: 50;
+    display: flex; flex-direction: column; gap: 8px; pointer-events: none;
+  }
+  .notif {
+    background: var(--surface2); border: 1px solid var(--border2);
+    border-left: 3px solid var(--warn); border-radius: 10px;
+    padding: 10px 14px; font-size: 13px; display: flex; align-items: center; gap: 10px;
+    animation: nIn 0.3s ease, nOut 0.4s ease 3.6s forwards; pointer-events: auto;
+  }
+  .notif.success { border-left-color: var(--up); }
+  .notif.info { border-left-color: var(--accent); }
+  @keyframes nIn { from{opacity:0;transform:translateY(-8px)} to{opacity:1;transform:translateY(0)} }
+  @keyframes nOut { to{opacity:0;transform:translateY(-8px)} }
+
+  /* HISTORY */
+  .history-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 16px; border-bottom: 1px solid var(--border);
+  }
+  .hist-sym { font-family: var(--mono); font-size: 13px; font-weight: 600; color: var(--text); }
+  .hist-desc { font-size: 11px; color: var(--text2); margin-top: 2px; }
+  .hist-time { font-size: 11px; color: var(--text3); font-family: var(--mono); margin-top: 2px; }
+  .hist-badge { font-size: 10px; font-family: var(--mono); padding: 3px 7px; border-radius: 5px; font-weight: 600; }
+  .hist-badge.up { background: var(--up-bg); color: var(--up); }
+  .hist-badge.dn { background: var(--down-bg); color: var(--down); }
+</style>
+</head>
+<body>
+
+<div class="notifs" id="notifs"></div>
+
+<!-- TOP BAR -->
+<div class="topbar">
+  <div class="brand">
+    <div class="brand-dot connecting" id="status-dot"></div>
+    StockAlert
+  </div>
+  <div class="conn-status connecting" id="conn-status">CONECTANDO...</div>
+</div>
+
+<!-- TICKER STRIP -->
+<div class="ticker-strip" id="ticker-strip">
+  <div style="padding:16px;color:var(--text3);font-size:12px;font-family:var(--mono)">Cargando precios reales...</div>
+</div>
+
+<!-- TABS -->
+<div class="tabs">
+  <button class="tab active" onclick="switchTab('active',this)">Activas</button>
+  <button class="tab" onclick="switchTab('history',this)">Ejecutadas</button>
+</div>
+
+<!-- TAB ACTIVE -->
+<div id="tab-active">
+  <div class="count-bar">
+    <div class="count-text">Activas (<strong id="alarm-count">0</strong> de 100 usadas)</div>
+    <button class="btn-edit" id="edit-toggle" onclick="toggleEditMode()">Editar</button>
+  </div>
+  <div class="table-header">
+    <div class="th">Pizarra</div>
+    <div class="th" style="text-align:right">Objetivo</div>
+    <div class="th" style="text-align:right">Últ. precio</div>
+  </div>
+  <div class="alarm-rows" id="alarm-rows"></div>
+</div>
+
+<!-- TAB HISTORY -->
+<div id="tab-history" style="display:none">
+  <div class="alarm-rows" id="history-rows"></div>
+</div>
+
+<!-- FAB -->
+<button class="fab" id="fab-btn" onclick="openSheet()">
+  <span style="font-size:18px">🔔</span> Nueva alerta
+</button>
+
+<!-- BOTTOM SHEET -->
+<div class="sheet-overlay" id="sheet" onclick="closeSheetOutside(event)">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title" id="sheet-title">Nueva alerta</div>
+
+    <!-- Search -->
+    <div class="search-wrap">
+      <span class="search-icon">🔍</span>
+      <input class="search-input" id="sym-search" placeholder="Busca una acción, ej: AAPL, Tesla..." autocomplete="off" oninput="onSearch(this.value)">
+    </div>
+    <div class="search-results" id="search-results" style="display:none"></div>
+
+    <!-- Selected symbol bar -->
+    <div class="selected-symbol-bar" id="sel-bar">
+      <div>
+        <div class="sel-sym" id="sel-sym-text">—</div>
+        <div class="sel-name" id="sel-name-text">—</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px">
+        <div class="sel-price" id="sel-price-text">—</div>
+        <button class="btn-clear" onclick="clearSelection()">✕</button>
+      </div>
+    </div>
+
+    <!-- Condition & Value -->
+    <div class="field-row">
+      <div class="field">
+        <label>Condición</label>
+        <select id="f-condition" onchange="updateValueLabel()">
+          <option value="above">Sube de $</option>
+          <option value="below">Baja de $</option>
+          <option value="pct_up">Sube más %</option>
+          <option value="pct_dn">Baja más %</option>
+        </select>
+      </div>
+      <div class="field">
+        <label id="f-val-label">Precio objetivo ($)</label>
+        <input type="number" id="f-value" placeholder="ej: 200.00" step="0.01">
+      </div>
+    </div>
+
+    <button class="btn-submit" id="btn-submit" onclick="submitAlarm()" disabled>Crear alerta</button>
+  </div>
+</div>
+
+<script>
+const API_KEY = 'd8ljt21r01qnkjl72dugd8ljt21r01qnkjl72dv0';
+
+// ── State ──
+const NAMES = { AAPL:'Apple',TSLA:'Tesla',GOOGL:'Google',MSFT:'Microsoft',AMZN:'Amazon',NVDA:'Nvidia',META:'Meta',BTC:'Bitcoin' };
+const TICKER_SYMS = ['AAPL','TSLA','GOOGL','MSFT','NVDA','META','BTC'];
+const FINNHUB_SYMS = { BTC: 'BINANCE:BTCUSDT' };
+
+let livePrices = {};
+let openPrices = {};
+let alarms = JSON.parse(localStorage.getItem('sa_v3') || 'null') || [
+  {id:1,symbol:'AAPL',name:'Apple',condition:'above',value:257,active:true},
+  {id:2,symbol:'NVDA',name:'Nvidia',condition:'above',value:220,active:true},
+  {id:3,symbol:'MSFT',name:'Microsoft',condition:'below',value:400,active:false},
+];
+let history = JSON.parse(localStorage.getItem('sa_hist_v3') || '[]');
+let editMode = false;
+let editingId = null;
+let currentTab = 'active';
+let selectedSymbol = null;
+let selectedName = null;
+let ws = null;
+let searchTimer = null;
+let subscribedSyms = new Set();
+
+// ── WebSocket connection to Finnhub ──
+function connectWS() {
+  setStatus('connecting');
+  ws = new WebSocket(`wss://ws.finnhub.io?token=${API_KEY}`);
+
+  ws.onopen = () => {
+    setStatus('live');
+    notify('📡 Conectado a precios en tiempo real', 'info');
+    subscribeAll();
+  };
+
+  ws.onmessage = (e) => {
+    const data = JSON.parse(e.data);
+    if (data.type === 'trade' && data.data) {
+      data.data.forEach(trade => {
+        const raw = trade.s;
+        // Map crypto symbol
+        const sym = raw === 'BINANCE:BTCUSDT' ? 'BTC' : raw;
+        if (!livePrices[sym]) openPrices[sym] = trade.p;
+        livePrices[sym] = trade.p;
+      });
+      updateTickerUI();
+      updateAlarmPrices();
+      checkAlarms();
+    }
+  };
+
+  ws.onerror = () => setStatus('error');
+  ws.onclose = () => {
+    setStatus('connecting');
+    setTimeout(connectWS, 3000);
+  };
+}
+
+function subscribeAll() {
+  const symsToSub = new Set([
+    ...TICKER_SYMS.map(s => FINNHUB_SYMS[s] || s),
+    ...alarms.map(a => FINNHUB_SYMS[a.symbol] || a.symbol)
+  ]);
+  symsToSub.forEach(s => {
+    if (!subscribedSyms.has(s)) {
+      ws?.send(JSON.stringify({type:'subscribe', symbol:s}));
+      subscribedSyms.add(s);
+    }
+  });
+}
+
+function subscribeSymbol(sym) {
+  const finnSym = FINNHUB_SYMS[sym] || sym;
+  if (ws?.readyState === 1 && !subscribedSyms.has(finnSym)) {
+    ws.send(JSON.stringify({type:'subscribe', symbol:finnSym}));
+    subscribedSyms.add(finnSym);
+  }
+}
+
+function setStatus(state) {
+  const dot = document.getElementById('status-dot');
+  const badge = document.getElementById('conn-status');
+  dot.className = 'brand-dot ' + state;
+  badge.className = 'conn-status ' + state;
+  badge.textContent = state === 'live' ? 'EN VIVO' : state === 'connecting' ? 'CONECTANDO...' : 'ERROR';
+}
+
+// ── Fetch quote via REST (for search results) ──
+async function fetchQuote(symbol) {
+  try {
+    const finnSym = FINNHUB_SYMS[symbol] || symbol;
+    const r = await fetch(`https://finnhub.io/api/v1/quote?symbol=${finnSym}&token=${API_KEY}`);
+    const d = await r.json();
+    if (d.c && d.c > 0) {
+      livePrices[symbol] = d.c;
+      openPrices[symbol] = d.o || d.c;
+      subscribeSymbol(symbol);
+      return d.c;
+    }
+  } catch(e) {}
+  return null;
+}
+
+// ── Symbol search ──
+async function onSearch(q) {
+  clearTimeout(searchTimer);
+  const resultsEl = document.getElementById('search-results');
+  if (q.length < 1) { resultsEl.style.display = 'none'; return; }
+
+  searchTimer = setTimeout(async () => {
+    resultsEl.style.display = 'block';
+    resultsEl.innerHTML = '<div class="search-loading">Buscando...</div>';
+    try {
+      const r = await fetch(`https://finnhub.io/api/v1/search?q=${encodeURIComponent(q)}&token=${API_KEY}`);
+      const d = await r.json();
+      const results = (d.result || []).filter(x => x.type === 'Common Stock' || x.type === 'ETP').slice(0, 6);
+      if (results.length === 0) {
+        resultsEl.innerHTML = '<div class="search-loading">Sin resultados</div>';
+        return;
+      }
+      resultsEl.innerHTML = results.map(r => `
+        <div class="search-item" onclick="selectSymbol('${r.symbol}','${r.description.replace(/'/g,"\\'")}')">
+          <div class="search-item-left">
+            <div class="search-sym">${r.symbol}</div>
+            <div class="search-name">${r.description}</div>
+          </div>
+          <div class="search-price" id="sp-${r.symbol}">—</div>
+        </div>`).join('');
+      // Fetch prices for results
+      results.forEach(async item => {
+        const price = await fetchQuote(item.symbol);
+        const el = document.getElementById(`sp-${item.symbol}`);
+        if (el && price) el.textContent = '$' + price.toFixed(2);
+      });
+    } catch(e) {
+      resultsEl.innerHTML = '<div class="search-loading">Error al buscar</div>';
+    }
+  }, 400);
+}
+
+async function selectSymbol(sym, name) {
+  selectedSymbol = sym;
+  selectedName = name;
+  document.getElementById('sym-search').value = '';
+  document.getElementById('search-results').style.display = 'none';
+  document.getElementById('sel-sym-text').textContent = sym;
+  document.getElementById('sel-name-text').textContent = name;
+  document.getElementById('sel-price-text').textContent = 'Cargando...';
+  document.getElementById('sel-bar').classList.add('show');
+  document.getElementById('btn-submit').disabled = false;
+
+  // Get real price
+  let price = livePrices[sym];
+  if (!price) price = await fetchQuote(sym);
+  if (price) {
+    document.getElementById('sel-price-text').textContent = '$' + price.toFixed(2);
+    document.getElementById('f-value').value = price.toFixed(2);
+  }
+}
+
+function clearSelection() {
+  selectedSymbol = null; selectedName = null;
+  document.getElementById('sel-bar').classList.remove('show');
+  document.getElementById('btn-submit').disabled = true;
+  document.getElementById('f-value').value = '';
+  document.getElementById('sym-search').value = '';
+}
+
+function updateValueLabel() {
+  const cond = document.getElementById('f-condition').value;
+  document.getElementById('f-val-label').textContent = cond.includes('pct') ? 'Porcentaje (%)' : 'Precio objetivo ($)';
+}
+
+// ── Ticker UI ──
+function updateTickerUI() {
+  const strip = document.getElementById('ticker-strip');
+  if (Object.keys(livePrices).length === 0) return;
+  strip.innerHTML = TICKER_SYMS.filter(s => livePrices[s]).map(s => {
+    const p = livePrices[s];
+    const o = openPrices[s] || p;
+    const diff = p - o;
+    const pct = o > 0 ? ((diff/o)*100).toFixed(2) : '0.00';
+    const isUp = diff >= 0;
+    const fmt = s==='BTC' ? '$'+Math.round(p).toLocaleString('en') : '$'+p.toFixed(2);
+    return `<div class="tick-item">
+      <div class="tick-sym">${s}</div>
+      <div class="tick-price" id="tp-${s}">${fmt}</div>
+      <div class="tick-chg ${isUp?'up':'dn'}">${isUp?'▲':'▼'}${Math.abs(pct)}%</div>
+    </div>`;
+  }).join('');
+}
+
+// ── Alarm rows ──
+function condLabel(a) {
+  if (a.condition==='above') return `▲ sup. $${a.value}`;
+  if (a.condition==='below') return `▼ inf. $${a.value}`;
+  if (a.condition==='pct_up') return `▲ +${a.value}%`;
+  return `▼ -${a.value}%`;
+}
+
+function getProgress(a) {
+  const p = livePrices[a.symbol] || 0;
+  const o = openPrices[a.symbol] || p;
+  if (!p || !o) return {pct:0, dir:'up'};
+  if (a.condition==='above') {
+    const pct = o < a.value ? Math.min(100, Math.max(0, ((p-o)/(a.value-o))*100)) : 100;
+    return {pct, dir:'up'};
+  }
+  if (a.condition==='below') {
+    const pct = o > a.value ? Math.min(100, Math.max(0, ((o-p)/(o-a.value))*100)) : 100;
+    return {pct, dir:'dn'};
+  }
+  return {pct:50, dir:'up'};
+}
+
+function renderAlarms() {
+  const rows = document.getElementById('alarm-rows');
+  document.getElementById('alarm-count').textContent = alarms.filter(a=>a.active).length;
+  if (alarms.length === 0) {
+    rows.innerHTML = `<div class="empty"><div class="empty-icon">🔕</div><div class="empty-title">Sin alertas</div><div class="empty-sub">Toca "Nueva alerta" para agregar una</div></div>`;
+    return;
+  }
+  const wrap = document.createElement('div');
+  if (editMode) wrap.classList.add('edit-mode');
+  alarms.forEach(a => {
+    const p = livePrices[a.symbol];
+    const o = openPrices[a.symbol] || p;
+    const fmt = p ? (a.symbol==='BTC' ? '$'+Math.round(p).toLocaleString('en') : '$'+p.toFixed(2)) : '—';
+    const diff = (p && o) ? p - o : 0;
+    const pct = (p && o && o>0) ? ((diff/o)*100).toFixed(2) : '0.00';
+    const isUp = diff >= 0;
+    const prog = getProgress(a);
+    const row = document.createElement('div');
+    row.className = `alarm-row${!a.active?' inactive':''}`;
+    row.id = `row-${a.id}`;
+    row.innerHTML = `
+      <div>
+        <div class="row-symbol">${a.symbol}</div>
+        <div class="row-cond"><span class="cond-dot ${a.active?'on':'off'}"></span>${condLabel(a)}</div>
+      </div>
+      <div>
+        <div class="row-target">${a.condition.includes('pct')?a.value+'%':'$'+a.value}</div>
+        <div class="row-target-sub">${a.name||a.symbol}</div>
+      </div>
+      <div>
+        <div class="row-price ${p?(isUp?'up':'dn'):'neutral'}" id="rp-${a.id}">${fmt}</div>
+        <div class="row-price-sub ${p?(isUp?'up':'dn'):'neutral'}">${p?(isUp?'▲':'▼')+Math.abs(pct)+'%':'—'}</div>
+      </div>
+      <div class="progress-wrap"><div class="progress-fill ${prog.dir}" style="width:${prog.pct}%"></div></div>
+      <div class="row-actions">
+        <button class="row-btn" onclick="toggleAlarm(${a.id})" title="${a.active?'Desactivar':'Activar'}">${a.active?'⏸':'▶'}</button>
+        <button class="row-btn del" onclick="deleteAlarm(${a.id})">🗑️</button>
+      </div>`;
+    wrap.appendChild(row);
+  });
+  rows.innerHTML = '';
+  rows.appendChild(wrap);
+}
+
+function updateAlarmPrices() {
+  alarms.forEach(a => {
+    const el = document.getElementById(`rp-${a.id}`);
+    if (!el) return;
+    const p = livePrices[a.symbol];
+    if (!p) return;
+    const o = openPrices[a.symbol] || p;
+    const fmt = a.symbol==='BTC' ? '$'+Math.round(p).toLocaleString('en') : '$'+p.toFixed(2);
+    const wasText = el.textContent;
+    if (wasText !== fmt) {
+      el.textContent = fmt;
+      const isUp = p > o;
+      el.className = `row-price ${isUp?'up':'dn'}`;
+      el.style.animation = 'none';
+      requestAnimationFrame(() => {
+        el.style.animation = isUp ? 'fUp 0.5s ease' : 'fDn 0.5s ease';
+      });
+    }
+  });
+}
+
+// ── Check alarms ──
+function checkAlarms() {
+  alarms.forEach(a => {
+    if (!a.active) return;
+    const p = livePrices[a.symbol];
+    const o = openPrices[a.symbol] || p;
+    if (!p) return;
+    let triggered = false, msg = '', dir = 'up';
+    if (a.condition==='above' && p > a.value) { triggered=true; msg=`${a.symbol} superó $${a.value} → $${p.toFixed(2)}`; dir='up'; }
+    else if (a.condition==='below' && p < a.value) { triggered=true; msg=`${a.symbol} bajó de $${a.value} → $${p.toFixed(2)}`; dir='dn'; }
+    else if (a.condition==='pct_up' && o>0) { const pct=((p-o)/o)*100; if(pct>=a.value){triggered=true;msg=`${a.symbol} subió ${pct.toFixed(1)}%`;dir='up';} }
+    else if (a.condition==='pct_dn' && o>0) { const pct=((o-p)/o)*100; if(pct>=a.value){triggered=true;msg=`${a.symbol} cayó ${pct.toFixed(1)}%`;dir='dn';} }
+    if (triggered) {
+      notify('🔔 '+msg);
+      const row = document.getElementById(`row-${a.id}`);
+      if (row) { row.classList.add('triggered'); setTimeout(()=>row.classList.remove('triggered'),2000); }
+      history.push({symbol:a.symbol, desc:msg, dir, time:new Date().toLocaleTimeString('es',{hour:'2-digit',minute:'2-digit'})});
+      if(history.length>50) history.shift();
+      localStorage.setItem('sa_hist_v3', JSON.stringify(history));
+    }
+  });
+}
+
+// ── CRUD ──
+function toggleAlarm(id) {
+  const a=alarms.find(x=>x.id===id); if(a){a.active=!a.active;save();renderAlarms();}
+}
+function deleteAlarm(id) {
+  alarms=alarms.filter(x=>x.id!==id); save(); renderAlarms();
+  notify('🗑️ Alerta eliminada','success');
+}
+function submitAlarm() {
+  if (!selectedSymbol) return;
+  const cond = document.getElementById('f-condition').value;
+  const val = parseFloat(document.getElementById('f-value').value);
+  if (!val || isNaN(val)) { notify('⚠️ Ingresa un valor válido'); return; }
+  if (editingId) {
+    const a=alarms.find(x=>x.id===editingId);
+    if(a){a.symbol=selectedSymbol;a.name=selectedName;a.condition=cond;a.value=val;}
+    editingId=null; notify('✅ Alerta actualizada','success');
+  } else {
+    alarms.push({id:Date.now(),symbol:selectedSymbol,name:selectedName||selectedSymbol,condition:cond,value:val,active:true});
+    subscribeSymbol(selectedSymbol);
+    notify('✅ Alerta creada para '+selectedSymbol,'success');
+  }
+  save(); renderAlarms(); closeSheet();
+}
+function save() { localStorage.setItem('sa_v3', JSON.stringify(alarms)); }
+
+// ── History ──
+function renderHistory() {
+  const el=document.getElementById('history-rows');
+  if(history.length===0){el.innerHTML=`<div class="empty"><div class="empty-icon">📋</div><div class="empty-title">Sin historial</div><div class="empty-sub">Aquí verás las alertas que se disparen</div></div>`;return;}
+  el.innerHTML=[...history].reverse().map(h=>`
+    <div class="history-row">
+      <div>
+        <div class="hist-sym">${h.symbol} <span class="hist-badge ${h.dir}">${h.dir==='up'?'▲ SUBIÓ':'▼ BAJÓ'}</span></div>
+        <div class="hist-desc">${h.desc}</div>
+        <div class="hist-time">${h.time}</div>
+      </div>
+    </div>`).join('');
+}
+
+// ── UI Helpers ──
+function toggleEditMode() {
+  editMode=!editMode;
+  document.getElementById('edit-toggle').textContent=editMode?'Listo':'Editar';
+  document.getElementById('fab-btn').style.display=editMode?'none':'flex';
+  renderAlarms();
+}
+function switchTab(tab,btn) {
+  currentTab=tab;
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('tab-active').style.display=tab==='active'?'block':'none';
+  document.getElementById('tab-history').style.display=tab==='history'?'block':'none';
+  if(tab==='history') renderHistory();
+}
+function openSheet() {
+  document.getElementById('sheet').classList.add('open');
+  document.getElementById('sheet-title').textContent = editingId ? 'Editar alerta' : 'Nueva alerta';
+  document.getElementById('btn-submit').textContent = editingId ? 'Guardar cambios' : 'Crear alerta';
+  setTimeout(()=>document.getElementById('sym-search').focus(),300);
+}
+function closeSheet() {
+  document.getElementById('sheet').classList.remove('open');
+  document.getElementById('search-results').style.display='none';
+  editingId=null; clearSelection();
+}
+function closeSheetOutside(e) { if(e.target===document.getElementById('sheet')) closeSheet(); }
+function notify(msg,type='') {
+  const c=document.getElementById('notifs');
+  const n=document.createElement('div');
+  n.className='notif '+(type||'');
+  n.textContent=msg;
+  c.appendChild(n);
+  setTimeout(()=>n.remove(),4100);
+}
+
+// ── Boot ──
+renderAlarms();
+connectWS();
+</script>
+</body>
+</html>
