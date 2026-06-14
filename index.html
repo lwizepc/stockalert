@@ -375,12 +375,9 @@
 </div>
 
 <script>
-const API_KEY = 'd8ljt21r01qnkjl72dugd8ljt21r01qnkjl72dv0';
-
 // ── State ──
 const NAMES = { AAPL:'Apple',TSLA:'Tesla',GOOGL:'Google',MSFT:'Microsoft',AMZN:'Amazon',NVDA:'Nvidia',META:'Meta',BTC:'Bitcoin' };
 const TICKER_SYMS = ['AAPL','TSLA','GOOGL','MSFT','NVDA','META','BTC'];
-const FINNHUB_SYMS = { BTC: 'BINANCE:BTCUSDT' };
 
 let livePrices = {};
 let openPrices = {};
@@ -395,63 +392,43 @@ let editingId = null;
 let currentTab = 'active';
 let selectedSymbol = null;
 let selectedName = null;
-let ws = null;
 let searchTimer = null;
-let subscribedSyms = new Set();
 
-// ── WebSocket connection to Finnhub ──
-function connectWS() {
+// ── Live price stream (server keeps the Finnhub connection alive) ──
+function connectStream() {
   setStatus('connecting');
-  ws = new WebSocket(`wss://ws.finnhub.io?token=${API_KEY}`);
+  const es = new EventSource('/api/stream');
 
-  ws.onopen = () => {
+  es.onopen = () => {
     setStatus('live');
     notify('📡 Conectado a precios en tiempo real', 'info');
-    subscribeAll();
+    alarms.forEach(a => subscribeSymbol(a.symbol));
   };
 
-  ws.onmessage = (e) => {
-    const data = JSON.parse(e.data);
-    if (data.type === 'trade' && data.data) {
-      data.data.forEach(trade => {
-        const raw = trade.s;
-        // Map crypto symbol
-        const sym = raw === 'BINANCE:BTCUSDT' ? 'BTC' : raw;
-        if (!livePrices[sym]) openPrices[sym] = trade.p;
-        livePrices[sym] = trade.p;
-      });
-      updateTickerUI();
-      updateAlarmPrices();
-      checkAlarms();
-    }
+  es.onmessage = (e) => {
+    try {
+      const msg = JSON.parse(e.data);
+      if (msg.type === 'prices') {
+        Object.entries(msg.data).forEach(([sym, info]) => {
+          if (!livePrices[sym]) openPrices[sym] = info.price;
+          livePrices[sym] = info.price;
+        });
+        updateTickerUI();
+        updateAlarmPrices();
+        checkAlarms();
+      }
+    } catch(err) {}
   };
 
-  ws.onerror = () => setStatus('error');
-  ws.onclose = () => {
-    setStatus('connecting');
-    setTimeout(connectWS, 3000);
-  };
-}
-
-function subscribeAll() {
-  const symsToSub = new Set([
-    ...TICKER_SYMS.map(s => FINNHUB_SYMS[s] || s),
-    ...alarms.map(a => FINNHUB_SYMS[a.symbol] || a.symbol)
-  ]);
-  symsToSub.forEach(s => {
-    if (!subscribedSyms.has(s)) {
-      ws?.send(JSON.stringify({type:'subscribe', symbol:s}));
-      subscribedSyms.add(s);
-    }
-  });
+  es.onerror = () => setStatus('connecting');
 }
 
 function subscribeSymbol(sym) {
-  const finnSym = FINNHUB_SYMS[sym] || sym;
-  if (ws?.readyState === 1 && !subscribedSyms.has(finnSym)) {
-    ws.send(JSON.stringify({type:'subscribe', symbol:finnSym}));
-    subscribedSyms.add(finnSym);
-  }
+  fetch('/api/subscribe', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({symbol: sym})
+  }).catch(()=>{});
 }
 
 function setStatus(state) {
@@ -462,16 +439,14 @@ function setStatus(state) {
   badge.textContent = state === 'live' ? 'EN VIVO' : state === 'connecting' ? 'CONECTANDO...' : 'ERROR';
 }
 
-// ── Fetch quote via REST (for search results) ──
+// ── Fetch quote via our server (for search results) ──
 async function fetchQuote(symbol) {
   try {
-    const finnSym = FINNHUB_SYMS[symbol] || symbol;
-    const r = await fetch(`https://finnhub.io/api/v1/quote?symbol=${finnSym}&token=${API_KEY}`);
+    const r = await fetch(`/api/quote?symbol=${encodeURIComponent(symbol)}`);
     const d = await r.json();
     if (d.c && d.c > 0) {
+      if (!livePrices[symbol]) openPrices[symbol] = d.o || d.c;
       livePrices[symbol] = d.c;
-      openPrices[symbol] = d.o || d.c;
-      subscribeSymbol(symbol);
       return d.c;
     }
   } catch(e) {}
@@ -488,7 +463,7 @@ async function onSearch(q) {
     resultsEl.style.display = 'block';
     resultsEl.innerHTML = '<div class="search-loading">Buscando...</div>';
     try {
-      const r = await fetch(`https://finnhub.io/api/v1/search?q=${encodeURIComponent(q)}&token=${API_KEY}`);
+      const r = await fetch(`/api/search?q=${encodeURIComponent(q)}`);
       const d = await r.json();
       const results = (d.result || []).filter(x => x.type === 'Common Stock' || x.type === 'ETP').slice(0, 6);
       if (results.length === 0) {
@@ -756,7 +731,7 @@ function notify(msg,type='') {
 
 // ── Boot ──
 renderAlarms();
-connectWS();
+connectStream();
 </script>
 </body>
 </html>
